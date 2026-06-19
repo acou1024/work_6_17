@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-06-19 16:31 四角形状逐帧锁定
+
+- 主题：消除纸面文字放大后边缘相对红纸的轻微悬浮/游动。
+- 关键文件：`app.py`。
+- 改动：将中心和四角形状的运行时跟随默认值改为逐帧直通原始 AE 轨迹；离线轨迹处理仅保留 3 帧中值去单帧尖刺，关闭形状平滑混合。
+- 验证：`python -m py_compile app.py` 通过；`python tools/render_preview.py` 已重新生成 `outputs/preview_after.mp4`；视频为 30fps/752 帧，并抽取 `outputs/preview_after_shape_lock_review/frame_001.jpg`、`frame_002.jpg`、`frame_003.jpg` 对应第 250/252/255 帧，目检确认剧烈晃动段大字贴纸且边缘未见明显相对游动。
+
 ## 2026-06-19 16:09 纸面文字放大
 
 - 主题：进一步放大纸面文字，使内容宽度接近红纸宽度的 85%。
