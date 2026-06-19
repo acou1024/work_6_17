@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-06-19 17:04 关闭尾段刚性约束
+
+- 主题：修复 20s 后第二段红纸入画时文字被尾段刚性约束拽离纸面的悬浮问题。
+- 关键文件：`app.py`。
+- 改动：将 `TAIL_SOFT_RIGID_BLEND` 和 `TAIL_STRONG_RIGID_BLEND` 默认值调整为 `0.0`，保留原始纸面轨迹而不再向刚性矩形拉扯。
+- 验证：`python -m py_compile app.py` 通过；`python tools/render_preview.py` 已重新生成 `outputs/preview_after.mp4`；视频为 30fps/752 帧，并抽取 `outputs/preview_after_tail_constraint_review/frame_001.jpg`、`frame_002.jpg`、`frame_003.jpg` 对应第 600/660/699 帧，目检确认 22s 前后文字贴在红纸上，未见尾段刚性约束导致的明显悬浮。
+
 ## 2026-06-19 16:31 四角形状逐帧锁定
 
 - 主题：消除纸面文字放大后边缘相对红纸的轻微悬浮/游动。
