@@ -131,14 +131,17 @@ FADE_MIN_VISIBLE_RATIO = float(os.getenv("FADE_MIN_VISIBLE_RATIO", "0.16"))
 FADE_FULL_VISIBLE_RATIO = float(os.getenv("FADE_FULL_VISIBLE_RATIO", "0.82"))
 MAX_EXTRAPOLATE_SECONDS = float(os.getenv("MAX_EXTRAPOLATE_SECONDS", "1.5"))
 
-# 镜头运动时整张纸已经在视频里模糊；文字 alpha 轻微同向拖影以匹配纸面运动。
-TEXT_MOTION_BLUR_SCALE = float(os.getenv("TEXT_MOTION_BLUR_SCALE", "0.6"))
-TEXT_MOTION_BLUR_MAX_KERNEL = int(os.getenv("TEXT_MOTION_BLUR_MAX_KERNEL", "5"))
+# 镜头运动时整张纸已经在视频里模糊；文字 alpha 同步跟随纸面四角运动量拖影。
+TEXT_MOTION_BLUR_SCALE = float(os.getenv("TEXT_MOTION_BLUR_SCALE", "0.7"))
+TEXT_MOTION_BLUR_MAX_KERNEL = int(os.getenv("TEXT_MOTION_BLUR_MAX_KERNEL", "35"))
+TEXT_MOTION_BLUR_GAUSSIAN_SCALE = float(os.getenv("TEXT_MOTION_BLUR_GAUSSIAN_SCALE", "0.12"))
+TEXT_FAST_MOTION_THRESHOLD = float(os.getenv("TEXT_FAST_MOTION_THRESHOLD", "18.0"))
+TEXT_FAST_OPACITY_MIN = float(os.getenv("TEXT_FAST_OPACITY_MIN", "0.72"))
 TEXT_BASE_DARKEN = float(os.getenv("TEXT_BASE_DARKEN", "0.96"))
 TEXT_EDGE_SOFTEN_SIGMA = float(os.getenv("TEXT_EDGE_SOFTEN_SIGMA", "0.60"))
-TEXT_PAPER_TEXTURE_GAIN = float(os.getenv("TEXT_PAPER_TEXTURE_GAIN", "0.42"))
+TEXT_PAPER_TEXTURE_GAIN = float(os.getenv("TEXT_PAPER_TEXTURE_GAIN", "0.60"))
 TEXT_HALO_WEIGHT = float(os.getenv("TEXT_HALO_WEIGHT", "0.06"))
-TEXT_INK_GRAIN_GAIN = float(os.getenv("TEXT_INK_GRAIN_GAIN", "0.12"))
+TEXT_INK_GRAIN_GAIN = float(os.getenv("TEXT_INK_GRAIN_GAIN", "0.30"))
 TEXT_INK_SINK_STRENGTH = float(os.getenv("TEXT_INK_SINK_STRENGTH", "0.22"))
 
 # 真实写在纸上的字应该保持固定纸面占比；透视 warp 已经负责远近缩放。
@@ -149,6 +152,8 @@ TEXT_LAYER_SCALE_GAIN = float(os.getenv("TEXT_LAYER_SCALE_GAIN", "0.0"))
 TEXT_LAYER_SCALE_MIN = float(os.getenv("TEXT_LAYER_SCALE_MIN", "1.0"))
 TEXT_LAYER_SCALE_MAX = float(os.getenv("TEXT_LAYER_SCALE_MAX", "1.0"))
 TEXT_SCALE_SMOOTH_ALPHA = float(os.getenv("TEXT_SCALE_SMOOTH_ALPHA", "0.35"))
+TEXT_LAYER_ROTATION_GAIN = float(os.getenv("TEXT_LAYER_ROTATION_GAIN", "1.0"))
+TEXT_LAYER_ROTATION_MAX_DEGREES = float(os.getenv("TEXT_LAYER_ROTATION_MAX_DEGREES", "4.0"))
 
 # 红纸检测只作为保守辅助：候选框必须和 AE 轨迹足够接近，才允许小幅修正。
 PAPER_QUAD_CORRECTION_BLEND = float(os.getenv("PAPER_QUAD_CORRECTION_BLEND", "0.0"))
@@ -213,7 +218,7 @@ def fit_font(
 
 
 def apply_ink_grain(layer: Image.Image) -> Image.Image:
-    """在纸面坐标里打散数字字边，让墨迹纹理跟随透视一起运动。"""
+    """在纸面坐标里打散字边和笔画，让墨迹纹理跟随透视一起运动。"""
     if TEXT_INK_GRAIN_GAIN <= 0:
         return layer
 
@@ -224,9 +229,9 @@ def apply_ink_grain(layer: Image.Image) -> Image.Image:
 
     h, w = alpha.shape
     rng = np.random.default_rng(20260618)
-    coarse = rng.normal(0.0, 1.0, (max(2, h // 22), max(2, w // 22))).astype(np.float32)
+    coarse = rng.normal(0.0, 1.0, (max(2, h // 30), max(2, w // 30))).astype(np.float32)
     grain = cv2.resize(coarse, (w, h), interpolation=cv2.INTER_CUBIC)
-    grain = cv2.GaussianBlur(grain, (0, 0), 1.2)
+    grain = cv2.GaussianBlur(grain, (0, 0), 1.6)
     grain -= float(grain.min())
     peak = float(grain.max())
     if peak > 0:
@@ -239,9 +244,15 @@ def apply_ink_grain(layer: Image.Image) -> Image.Image:
     if fine_peak > 0:
         fine /= fine_peak
 
-    texture = 0.72 + TEXT_INK_GRAIN_GAIN * (0.72 * grain + 0.28 * fine)
-    edge = cv2.GaussianBlur(alpha, (3, 3), 0.45)
-    alpha = np.clip(edge * texture, 0.0, 1.0)
+    sparse = rng.random((h, w), dtype=np.float32)
+    sparse = cv2.GaussianBlur(sparse, (0, 0), 0.7)
+    sparse_mask = np.clip((sparse - 0.36) / 0.64, 0.0, 1.0)
+
+    paper_fiber = 0.70 * grain + 0.30 * fine
+    dry_brush = 1.0 - TEXT_INK_GRAIN_GAIN * (0.85 * paper_fiber + 0.35 * sparse_mask)
+    dark_pools = 1.0 + TEXT_INK_GRAIN_GAIN * 0.38 * (1.0 - grain)
+    edge = cv2.GaussianBlur(alpha, (3, 3), 0.42)
+    alpha = np.clip(edge * dry_brush * dark_pools, 0.0, 1.0)
     rgba[:, :, 3] = alpha * 255.0
     return Image.fromarray(np.clip(rgba, 0, 255).astype(np.uint8), mode="RGBA")
 
@@ -338,6 +349,58 @@ def _draw_text_stamp(
     base.alpha_composite(stamp, dest=(dest_x, dest_y))
 
 
+def _draw_handwritten_line(
+    base: Image.Image,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    center_x: float,
+    center_y: float,
+    angle: float,
+    opacity: int,
+    warm_tint: tuple[int, int, int],
+    rng: np.random.Generator,
+) -> None:
+    """逐字盖印，给每个字稳定的轻微角度、字号和基线差异。"""
+    probe = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(probe)
+    widths: list[int] = []
+    max_h = 0
+    for char in text:
+        bbox = draw.textbbox((0, 0), char, font=font)
+        char_w = max(1, bbox[2] - bbox[0])
+        char_h = max(1, bbox[3] - bbox[1])
+        widths.append(char_w)
+        max_h = max(max_h, char_h)
+
+    tracking = max(2, int(round(font.size * 0.05)))
+    total_w = sum(widths) + tracking * max(0, len(widths) - 1)
+    cursor_x = center_x - total_w / 2.0
+    scale_ratio = font.size / max(1, 70 * 2)
+    baseline_jitter = max(2.0, 3.0 * scale_ratio)
+
+    for char, char_w in zip(text, widths):
+        char_center_x = cursor_x + char_w / 2.0 + float(rng.uniform(-1.2, 1.2))
+        char_center_y = center_y + float(rng.uniform(-baseline_jitter, baseline_jitter))
+        size_jitter = 1.0 + float(rng.uniform(-0.03, 0.03))
+        char_font = font
+        if abs(size_jitter - 1.0) > 0.005:
+            char_font = font.font_variant(size=max(8, int(round(font.size * size_jitter))))
+        char_angle = angle + float(rng.uniform(-1.5, 1.5))
+        char_opacity = int(np.clip(opacity + rng.integers(-16, 11), 160, 230))
+        _draw_text_stamp(
+            base,
+            char,
+            char_font,
+            center_x=char_center_x,
+            center_y=char_center_y,
+            angle=char_angle,
+            opacity=char_opacity,
+            warm_tint=warm_tint,
+            stroke_alpha=44,
+        )
+        cursor_x += char_w + tracking
+
+
 # =========================
 # 第一步：动态文字图像生成
 # =========================
@@ -398,15 +461,15 @@ def create_text_layer(
     stain[:, :, 3] = np.clip(mask.astype(np.float32) * 0.018, 0, 255).astype(np.uint8)
     layer = Image.alpha_composite(layer, Image.fromarray(stain, mode="RGBA"))
 
-    warm_tint = (22, 14, 10)
+    warm_tint = (28, 18, 14)
     lines = [
-        (title_text, title_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.32, -0.12 + rng.uniform(-0.05, 0.05), 250),
-        (identity_text, identity_font, work_size[0] * 0.50 + rng.integers(-4, 5), work_size[1] * 0.52, 0.04 + rng.uniform(-0.04, 0.04), 248),
-        (wish_text, wish_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.71, 0.04 + rng.uniform(-0.04, 0.04), 244),
+        (title_text, title_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.32, -0.12 + rng.uniform(-0.05, 0.05), 225),
+        (identity_text, identity_font, work_size[0] * 0.50 + rng.integers(-4, 5), work_size[1] * 0.52, 0.04 + rng.uniform(-0.04, 0.04), 222),
+        (wish_text, wish_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.71, 0.04 + rng.uniform(-0.04, 0.04), 218),
     ]
 
     for text, font, center_x, center_y, angle, opacity in lines:
-        _draw_text_stamp(
+        _draw_handwritten_line(
             layer,
             text,
             font,
@@ -415,6 +478,7 @@ def create_text_layer(
             angle=float(angle),
             opacity=int(opacity),
             warm_tint=warm_tint,
+            rng=rng,
         )
 
     # 先把高分辨率图层轻微柔化，再缩回目标画布，形成更像扫描件的边缘。
@@ -1036,40 +1100,57 @@ def opacity_from_visible_ratio(ratio: float) -> float:
     return float(t * t * (3.0 - 2.0 * t))
 
 
-def apply_motion_blur_to_alpha(alpha: np.ndarray, motion_vector: np.ndarray | None) -> np.ndarray:
-    """按纸面中心运动方向给文字 alpha 加运动模糊，减少清晰贴图漂浮感。"""
+def apply_motion_blur_to_alpha(
+    alpha: np.ndarray,
+    motion_vector: np.ndarray | None,
+    motion_amount: float | None = None,
+) -> np.ndarray:
+    """按纸面四角运动量给文字 alpha 加方向拖影和近似缩放模糊。"""
     if motion_vector is None:
         return alpha
 
     motion = np.array(motion_vector, dtype=np.float32)
     distance = safe_length(motion)
-    if distance < 3.0 or TEXT_MOTION_BLUR_SCALE <= 0:
+    blur_distance = float(motion_amount) if motion_amount is not None else distance
+    if blur_distance < 3.0 or TEXT_MOTION_BLUR_SCALE <= 0:
         return alpha
 
-    kernel_size = int(round(distance * TEXT_MOTION_BLUR_SCALE))
+    kernel_size = int(round(blur_distance * TEXT_MOTION_BLUR_SCALE))
     kernel_size = max(3, min(TEXT_MOTION_BLUR_MAX_KERNEL, kernel_size))
     if kernel_size % 2 == 0:
         kernel_size += 1
 
-    direction = motion / max(distance, 1e-6)
-    center = (kernel_size - 1) / 2.0
-    half = center
-    start = (
-        int(round(center - direction[0] * half)),
-        int(round(center - direction[1] * half)),
-    )
-    end = (
-        int(round(center + direction[0] * half)),
-        int(round(center + direction[1] * half)),
-    )
+    blurred = alpha
+    if distance >= 1.0:
+        direction = motion / max(distance, 1e-6)
+        center = (kernel_size - 1) / 2.0
+        half = center
+        start = (
+            int(round(center - direction[0] * half)),
+            int(round(center - direction[1] * half)),
+        )
+        end = (
+            int(round(center + direction[0] * half)),
+            int(round(center + direction[1] * half)),
+        )
 
-    kernel = np.zeros((kernel_size, kernel_size), dtype=np.float32)
-    cv2.line(kernel, start, end, 1.0, 1)
-    kernel_sum = float(kernel.sum())
-    if kernel_sum <= 0:
-        return alpha
-    kernel /= kernel_sum
-    return cv2.filter2D(alpha, -1, kernel, borderType=cv2.BORDER_REPLICATE)
+        kernel = np.zeros((kernel_size, kernel_size), dtype=np.float32)
+        cv2.line(kernel, start, end, 1.0, 1)
+        kernel_sum = float(kernel.sum())
+        if kernel_sum > 0:
+            kernel /= kernel_sum
+            blurred = cv2.filter2D(alpha, -1, kernel, borderType=cv2.BORDER_REPLICATE)
+
+    gaussian_sigma = min(
+        TEXT_MOTION_BLUR_MAX_KERNEL / 3.0,
+        blur_distance * max(0.0, TEXT_MOTION_BLUR_GAUSSIAN_SCALE),
+    )
+    if gaussian_sigma >= 0.35:
+        gaussian = cv2.GaussianBlur(alpha, (0, 0), gaussian_sigma)
+        mix = float(np.clip((blur_distance - 8.0) / 24.0, 0.0, 0.70))
+        blurred = blurred * (1.0 - mix) + gaussian * mix
+
+    return np.clip(blurred, 0.0, 1.0)
 
 
 def quad_area(corners: np.ndarray | None) -> float:
@@ -1090,14 +1171,30 @@ def estimate_text_layer_scale(current_corners: np.ndarray, reference_corners: np
     return float(np.clip(compensated, TEXT_LAYER_SCALE_MIN, TEXT_LAYER_SCALE_MAX))
 
 
-def scale_text_layer_rgba(layer: np.ndarray, scale: float) -> np.ndarray:
-    """围绕中心缩放整层文字，不改变画布尺寸。"""
-    if abs(scale - 1.0) < 0.01:
+def estimate_quad_rotation_degrees(current_corners: np.ndarray, reference_corners: np.ndarray | None) -> float:
+    """用最小二乘相似变换估计纸面面内小角度旋转。"""
+    if reference_corners is None or current_corners.shape != (4, 2) or reference_corners.shape != (4, 2):
+        return 0.0
+    matrix, _ = cv2.estimateAffinePartial2D(
+        reference_corners.astype(np.float32),
+        current_corners.astype(np.float32),
+        method=cv2.LMEDS,
+    )
+    if matrix is None:
+        return 0.0
+    angle = math.degrees(math.atan2(float(matrix[1, 0]), float(matrix[0, 0])))
+    angle *= TEXT_LAYER_ROTATION_GAIN
+    return float(np.clip(angle, -TEXT_LAYER_ROTATION_MAX_DEGREES, TEXT_LAYER_ROTATION_MAX_DEGREES))
+
+
+def scale_text_layer_rgba(layer: np.ndarray, scale: float, rotation_degrees: float = 0.0) -> np.ndarray:
+    """围绕中心缩放/轻微旋转整层文字，不改变画布尺寸。"""
+    if abs(scale - 1.0) < 0.01 and abs(rotation_degrees) < 0.01:
         return layer
 
     h, w = layer.shape[:2]
     center = (w / 2.0, h / 2.0)
-    matrix = cv2.getRotationMatrix2D(center, 0.0, scale)
+    matrix = cv2.getRotationMatrix2D(center, rotation_degrees, scale)
     matrix[1, 2] += h * TEXT_LAYOUT_Y_OFFSET_RATIO
     return cv2.warpAffine(
         layer,
@@ -1114,6 +1211,7 @@ def multiply_like_blend(
     warped_rgba: np.ndarray,
     opacity: float = 0.85,
     motion_vector: np.ndarray | None = None,
+    motion_amount: float | None = None,
     paper_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """
@@ -1129,7 +1227,7 @@ def multiply_like_blend(
     alpha = warped_rgba[:, :, 3].astype(np.float32) / 255.0
     if paper_mask is not None and paper_mask.shape == alpha.shape:
         alpha *= paper_mask.astype(np.float32)
-    alpha = apply_motion_blur_to_alpha(alpha, motion_vector)
+    alpha = apply_motion_blur_to_alpha(alpha, motion_vector, motion_amount)
     warped_rgb = cv2.GaussianBlur(warped_rgba[:, :, :3], (3, 3), 0.7).astype(np.float32)
 
     # 文字主体 alpha：轻微模糊消除像素感
@@ -1152,8 +1250,9 @@ def multiply_like_blend(
     blended = frame_float * darken * paper_texture
     if TEXT_INK_SINK_STRENGTH > 0:
         sink = np.clip(alpha_blended[:, :, None] * TEXT_INK_SINK_STRENGTH, 0.0, 1.0)
-        ink_tint = np.array([18.0, 12.0, 9.0], dtype=np.float32)
-        layer_tint = np.where(warped_rgb > 0.5, warped_rgb, ink_tint)
+        ink_tint_bgr = np.array([14.0, 18.0, 28.0], dtype=np.float32)
+        warped_bgr = warped_rgb[:, :, ::-1]
+        layer_tint = np.where(warped_bgr > 0.5, warped_bgr, ink_tint_bgr)
         blended = blended * (1.0 - sink) + layer_tint * sink
     return np.clip(blended, 0, 255).astype(np.uint8)
 
@@ -1292,8 +1391,14 @@ def add_text_to_video(
                 continue
 
             motion_vector = None
+            corner_motion_amount = 0.0
             if previous_final_corners_for_blur is not None:
-                motion_vector = dst_points.mean(axis=0) - previous_final_corners_for_blur.mean(axis=0)
+                corner_deltas = dst_points - previous_final_corners_for_blur
+                motion_vector = corner_deltas.mean(axis=0)
+                corner_motion_amount = float(np.linalg.norm(corner_deltas, axis=1).mean())
+                if corner_motion_amount > TEXT_FAST_MOTION_THRESHOLD:
+                    speed_t = float(np.clip((corner_motion_amount - TEXT_FAST_MOTION_THRESHOLD) / 17.0, 0.0, 1.0))
+                    frame_opacity *= (0.80 * (1.0 - speed_t) + TEXT_FAST_OPACITY_MIN * speed_t)
 
             dynamic_text_scale = estimate_text_layer_scale(dst_points, reference_corners)
             if smoothed_text_scale is None:
@@ -1304,7 +1409,8 @@ def add_text_to_video(
                     + dynamic_text_scale * TEXT_SCALE_SMOOTH_ALPHA
                 )
             text_scale = TEXT_LAYOUT_CONTENT_SCALE * smoothed_text_scale
-            frame_text_rgba = scale_text_layer_rgba(text_rgba, text_scale)
+            text_rotation = estimate_quad_rotation_degrees(dst_points, reference_corners)
+            frame_text_rgba = scale_text_layer_rgba(text_rgba, text_scale, text_rotation)
             frame_canvas_h, frame_canvas_w = frame_text_rgba.shape[:2]
             frame_src_points = np.array(
                 [[0, 0], [frame_canvas_w, 0], [frame_canvas_w, frame_canvas_h], [0, frame_canvas_h]],
@@ -1326,6 +1432,7 @@ def add_text_to_video(
                 warped,
                 opacity=frame_opacity,
                 motion_vector=motion_vector,
+                motion_amount=corner_motion_amount,
                 paper_mask=paper_mask,
             )
             writer.write(result_frame)

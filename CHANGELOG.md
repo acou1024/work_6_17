@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-06-19 21:40 纸面文字运动模糊与手写融合
+
+- 主题：修复 22–23.3s 高速运动时锐利文字浮在模糊红纸上的割裂感，并增强静帧手写墨迹质感。
+- 关键文件：`app.py`、`.env`、`.env.example`。
+- 改动：文字运动模糊改用相邻帧四角平均位移驱动，将最大核提升到 35px，并叠加高斯近似缩放模糊；高速帧按运动量降低文字透明度；文字母版改为逐字稳定微扰，提升飞白/浓淡噪声和纸面纹理乘性融合，并修正 RGB 图层与 BGR 视频帧混合时的墨色通道。
+- 验证：`python -m py_compile app.py tools/render_preview.py` 通过；`python tools/render_preview.py` 已重新生成 `outputs/preview_after.mp4`；抽取 `outputs/preview_after_motion_blur_review/frame_04.0s_0120.jpg`、`frame_22.0s_0660.jpg`、`frame_22.4s_0672.jpg`、`frame_23.0s_0690.jpg` 目检，4s 静帧有笔画浓淡/纸纹融合，23.0s 快速段文字随纸面明显模糊并降透明；轨迹统计显示帧 690 四角平均位移约 26.17px/帧，已触发高速模糊分支。
+
 ## 2026-06-19 17:38 中心去尖刺与文字居中
 
 - 主题：修复 20–23s 第二段红纸入画时的瞬间割裂，并让纸面文字整体落在红纸正中。
