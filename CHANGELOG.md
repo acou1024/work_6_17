@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-06-19 15:22 马善政毛笔手写字体
+
+- 主题：将纸面文字切换为随仓库携带的 MaShanZheng 毛笔手写字体，并恢复版式占纸比例。
+- 关键文件：`.env`、`public/fonts/MaShanZheng-Regular.ttf`、`public/fonts/MaShanZheng-OFL.txt`。
+- 改动：新增 MaShanZheng 字体与 OFL 许可证；`PAPER_FONT_PATH` 指向仓库字体；`TEXT_LAYOUT_CONTENT_SCALE` 调整为 `1.0`。
+- 验证：`python -m py_compile tools/render_preview.py` 通过；`python tools/render_preview.py` 已生成 `outputs/preview_after.mp4`，并抽取 `outputs/preview_after_review/frame_001s.jpg`、`frame_004s.jpg`、`frame_008s.jpg` 目检确认毛笔手写字体、版式更饱满且晃动段未见明显漂移。
+
 ## 2026-06-19 13:17 纸面文字锚点锁定
 
 - 主题：修复镜头晃动时文字相对红纸悬浮/打滑的问题。
