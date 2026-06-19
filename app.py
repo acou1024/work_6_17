@@ -144,7 +144,7 @@ TEXT_INK_SINK_STRENGTH = float(os.getenv("TEXT_INK_SINK_STRENGTH", "0.22"))
 # 真实写在纸上的字应该保持固定纸面占比；透视 warp 已经负责远近缩放。
 # 这里默认只做固定版式补偿，避免逐帧“呼吸”造成漂浮感。
 TEXT_LAYOUT_CONTENT_SCALE = float(os.getenv("TEXT_LAYOUT_CONTENT_SCALE", "0.82"))
-TEXT_LAYOUT_Y_OFFSET_RATIO = float(os.getenv("TEXT_LAYOUT_Y_OFFSET_RATIO", "0.070"))
+TEXT_LAYOUT_Y_OFFSET_RATIO = float(os.getenv("TEXT_LAYOUT_Y_OFFSET_RATIO", "0.0"))
 TEXT_LAYER_SCALE_GAIN = float(os.getenv("TEXT_LAYER_SCALE_GAIN", "0.0"))
 TEXT_LAYER_SCALE_MIN = float(os.getenv("TEXT_LAYER_SCALE_MIN", "1.0"))
 TEXT_LAYER_SCALE_MAX = float(os.getenv("TEXT_LAYER_SCALE_MAX", "1.0"))
@@ -400,9 +400,9 @@ def create_text_layer(
 
     warm_tint = (22, 14, 10)
     lines = [
-        (title_text, title_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.27, -0.12 + rng.uniform(-0.05, 0.05), 250),
-        (identity_text, identity_font, work_size[0] * 0.50 + rng.integers(-4, 5), work_size[1] * 0.47, 0.04 + rng.uniform(-0.04, 0.04), 248),
-        (wish_text, wish_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.66, 0.04 + rng.uniform(-0.04, 0.04), 244),
+        (title_text, title_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.32, -0.12 + rng.uniform(-0.05, 0.05), 250),
+        (identity_text, identity_font, work_size[0] * 0.50 + rng.integers(-4, 5), work_size[1] * 0.52, 0.04 + rng.uniform(-0.04, 0.04), 248),
+        (wish_text, wish_font, work_size[0] * 0.51 + rng.integers(-3, 4), work_size[1] * 0.71, 0.04 + rng.uniform(-0.04, 0.04), 244),
     ]
 
     for text, font, center_x, center_y, angle, opacity in lines:
@@ -587,8 +587,8 @@ def smooth_loaded_trajectory(trajectory: Trajectory) -> Trajectory:
         raw = np.stack([trajectory[frame_idx] for frame_idx in segment]).astype(np.float32)
         despiked = centered_median_filter(raw, TRAJECTORY_MEDIAN_RADIUS)
 
-        centers = raw.mean(axis=1)
         despiked_centers = despiked.mean(axis=1)
+        centers = despiked_centers
         shapes = despiked - despiked_centers[:, None, :]
 
         center_motion_samples = np.zeros(len(segment), dtype=np.float32)

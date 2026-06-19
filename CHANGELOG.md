@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-06-19 17:38 中心去尖刺与文字居中
+
+- 主题：修复 20–23s 第二段红纸入画时的瞬间割裂，并让纸面文字整体落在红纸正中。
+- 关键文件：`app.py`、`.env`。
+- 改动：`smooth_loaded_trajectory` 的中心轨迹改用去尖刺后的中心；三行纸面文字整体下移到更居中的 y 位置；清空 `TEXT_LAYOUT_Y_OFFSET_RATIO` 默认值和环境配置。
+- 验证：`python -m py_compile app.py` 通过；`python tools/render_preview.py` 已重新生成 `outputs/preview_after.mp4`；视频为 30fps/752 帧，并抽取 `outputs/preview_after_center_split_review/frame_001.jpg`、`frame_002.jpg`、`frame_003.jpg`、`frame_004.jpg` 对应第 252/600/660/699 帧，目检确认 20–23s 未见明显瞬间割裂，文字整体居中贴在红纸中部。
+
 ## 2026-06-19 17:04 关闭尾段刚性约束
 
 - 主题：修复 20s 后第二段红纸入画时文字被尾段刚性约束拽离纸面的悬浮问题。
