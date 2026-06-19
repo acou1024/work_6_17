@@ -104,26 +104,26 @@ HOLD_VISIBLE_START_SECONDS = float(os.getenv("HOLD_VISIBLE_START_SECONDS", "7.0"
 HOLD_VISIBLE_END_SECONDS = float(os.getenv("HOLD_VISIBLE_END_SECONDS", "10.0"))
 HOLD_REFERENCE_SECONDS = float(os.getenv("HOLD_REFERENCE_SECONDS", "6.0"))
 
-# AE 数据低通滤波参数。先离线滤掉高频抖动，运行时只在低速段继续压细抖。
-COORDINATE_SMOOTH_ALPHA = float(os.getenv("COORDINATE_SMOOTH_ALPHA", "0.08"))
+# AE 轨迹要跟随原始纸面抖动，只对形状保留轻量去尖刺/降噪。
+COORDINATE_SMOOTH_ALPHA = float(os.getenv("COORDINATE_SMOOTH_ALPHA", "0.65"))
 CENTER_SOFT_FOLLOW_PIXELS = float(os.getenv("CENTER_SOFT_FOLLOW_PIXELS", "6.0"))
 CENTER_HARD_FOLLOW_PIXELS = float(os.getenv("CENTER_HARD_FOLLOW_PIXELS", "22.0"))
-COORDINATE_DEAD_ZONE_PIXELS = float(os.getenv("COORDINATE_DEAD_ZONE_PIXELS", "1.2"))
+COORDINATE_DEAD_ZONE_PIXELS = float(os.getenv("COORDINATE_DEAD_ZONE_PIXELS", "0.0"))
 SHAPE_SOFT_FOLLOW_PIXELS = float(os.getenv("SHAPE_SOFT_FOLLOW_PIXELS", "2.5"))
 SHAPE_HARD_FOLLOW_PIXELS = float(os.getenv("SHAPE_HARD_FOLLOW_PIXELS", "12.0"))
 SHAPE_FAST_SMOOTH_ALPHA = float(os.getenv("SHAPE_FAST_SMOOTH_ALPHA", "0.72"))
 
-# 离线零相位轨迹平滑：不会像单向 EMA 一样产生明显滞后。
-TRAJECTORY_MOVING_AVERAGE_WINDOW = int(os.getenv("TRAJECTORY_MOVING_AVERAGE_WINDOW", "9"))
+# 离线轨迹处理：中心直通原始 AE 值，只对偶发尖刺和四角形状做轻量处理。
+TRAJECTORY_MOVING_AVERAGE_WINDOW = int(os.getenv("TRAJECTORY_MOVING_AVERAGE_WINDOW", "1"))
 TRAJECTORY_MEDIAN_RADIUS = int(os.getenv("TRAJECTORY_MEDIAN_RADIUS", "4"))
 TRAJECTORY_CENTER_SMOOTH_RADIUS = int(os.getenv("TRAJECTORY_CENTER_SMOOTH_RADIUS", "9"))
-TRAJECTORY_SHAPE_SMOOTH_RADIUS = int(os.getenv("TRAJECTORY_SHAPE_SMOOTH_RADIUS", "18"))
+TRAJECTORY_SHAPE_SMOOTH_RADIUS = int(os.getenv("TRAJECTORY_SHAPE_SMOOTH_RADIUS", "6"))
 TRAJECTORY_SMOOTH_SIGMA = float(os.getenv("TRAJECTORY_SMOOTH_SIGMA", "4.0"))
-TRAJECTORY_CENTER_BLEND = float(os.getenv("TRAJECTORY_CENTER_BLEND", "0.88"))
-TRAJECTORY_SHAPE_BLEND = float(os.getenv("TRAJECTORY_SHAPE_BLEND", "0.98"))
+TRAJECTORY_CENTER_BLEND = float(os.getenv("TRAJECTORY_CENTER_BLEND", "0.0"))
+TRAJECTORY_SHAPE_BLEND = float(os.getenv("TRAJECTORY_SHAPE_BLEND", "0.5"))
 TRAJECTORY_MOTION_SOFT_PIXELS = float(os.getenv("TRAJECTORY_MOTION_SOFT_PIXELS", "6.0"))
 TRAJECTORY_MOTION_HARD_PIXELS = float(os.getenv("TRAJECTORY_MOTION_HARD_PIXELS", "22.0"))
-TRAJECTORY_FAST_CENTER_BLEND = float(os.getenv("TRAJECTORY_FAST_CENTER_BLEND", "0.18"))
+TRAJECTORY_FAST_CENTER_BLEND = float(os.getenv("TRAJECTORY_FAST_CENTER_BLEND", "0.0"))
 TRAJECTORY_FAST_SHAPE_BLEND = float(os.getenv("TRAJECTORY_FAST_SHAPE_BLEND", "0.12"))
 
 # 红纸半出画时按可见面积淡出，避免文字漂在香炉/背景上。
@@ -131,8 +131,8 @@ FADE_MIN_VISIBLE_RATIO = float(os.getenv("FADE_MIN_VISIBLE_RATIO", "0.16"))
 FADE_FULL_VISIBLE_RATIO = float(os.getenv("FADE_FULL_VISIBLE_RATIO", "0.82"))
 MAX_EXTRAPOLATE_SECONDS = float(os.getenv("MAX_EXTRAPOLATE_SECONDS", "1.5"))
 
-# 镜头运动时整张纸已经在视频里模糊；文字 alpha 再单独拖影会造成字形变动和看不清。
-TEXT_MOTION_BLUR_SCALE = float(os.getenv("TEXT_MOTION_BLUR_SCALE", "0.0"))
+# 镜头运动时整张纸已经在视频里模糊；文字 alpha 轻微同向拖影以匹配纸面运动。
+TEXT_MOTION_BLUR_SCALE = float(os.getenv("TEXT_MOTION_BLUR_SCALE", "0.6"))
 TEXT_MOTION_BLUR_MAX_KERNEL = int(os.getenv("TEXT_MOTION_BLUR_MAX_KERNEL", "5"))
 TEXT_BASE_DARKEN = float(os.getenv("TEXT_BASE_DARKEN", "0.96"))
 TEXT_EDGE_SOFTEN_SIGMA = float(os.getenv("TEXT_EDGE_SOFTEN_SIGMA", "0.60"))
@@ -504,9 +504,9 @@ def centered_moving_average_trajectory(
     window_size: int = TRAJECTORY_MOVING_AVERAGE_WINDOW,
 ) -> Trajectory:
     """
-    5 帧居中滑动平均，专门压掉 trajectory.json 的轻微高频抖动。
+    可选居中滑动平均；默认关闭以保留纸面原始逐帧晃动。
 
-    对第 i 帧使用 i-2, i-1, i, i+1, i+2 的有效坐标求平均；
+    当 window_size > 1 时，对第 i 帧前后窗口内的有效坐标求平均；
     如果窗口里遇到 None，说明红纸出画或无数据，直接跳过不计入平均。
     """
     if window_size <= 1:
@@ -568,13 +568,12 @@ def centered_gaussian_smooth(values: np.ndarray, radius: int, sigma: float) -> n
 
 def smooth_loaded_trajectory(trajectory: Trajectory) -> Trajectory:
     """
-    对 AE 轨迹做离线零相位平滑，降低文字相对纸面的高频抖动。
+    对 AE 轨迹做离线轻量处理，中心逐帧锁定原始纸面位置。
 
     处理思路：
     1. 只处理连续有效坐标段，None 出画段原样保留。
-    2. 先中值滤波去掉单帧跳点。
-    3. 纸张中心轻平滑，保证真实大运动仍然跟随。
-    4. 四角相对中心的形状重平滑，减少透视扭动造成的文字抖动。
+    2. 中心使用原始 AE 值，避免文字相对未防抖画面产生滞后。
+    3. 四角相对中心的形状保留轻量去尖刺和平滑，减少透视扭动。
     """
     smoothed_trajectory: Trajectory = {
         frame_idx: None if corners is None else corners.copy()
@@ -588,8 +587,9 @@ def smooth_loaded_trajectory(trajectory: Trajectory) -> Trajectory:
         raw = np.stack([trajectory[frame_idx] for frame_idx in segment]).astype(np.float32)
         despiked = centered_median_filter(raw, TRAJECTORY_MEDIAN_RADIUS)
 
-        centers = despiked.mean(axis=1)
-        shapes = despiked - centers[:, None, :]
+        centers = raw.mean(axis=1)
+        despiked_centers = despiked.mean(axis=1)
+        shapes = despiked - despiked_centers[:, None, :]
 
         center_motion_samples = np.zeros(len(segment), dtype=np.float32)
         shape_motion_samples = np.zeros(len(segment), dtype=np.float32)
@@ -912,10 +912,6 @@ def smooth_trajectory_corners(
     previous_shape = previous - previous_center
     current_shape = current - current_center
     shape_motion = float(np.mean(np.linalg.norm(current_shape - previous_shape, axis=1)))
-
-    # 位移和形状都极小时视为 AE 细噪声，保持上一帧可消除静止段抖动。
-    if center_motion < COORDINATE_DEAD_ZONE_PIXELS and shape_motion < COORDINATE_DEAD_ZONE_PIXELS:
-        return previous.astype(np.float32)
 
     # 中心点已经经过离线零相位平滑；运行时中心直接跟随，避免相位差。
     smoothed_center = current_center

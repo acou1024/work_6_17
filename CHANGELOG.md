@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-06-19 13:17 纸面文字锚点锁定
+
+- 主题：修复镜头晃动时文字相对红纸悬浮/打滑的问题。
+- 关键文件：`app.py`、`.env`、`tools/measure_anchor.py`。
+- 改动：关闭轨迹滑动平均和运行时死区冻结，纸面中心逐帧直通原始 AE 轨迹；四角形状仅保留轻量去尖刺/平滑，并开启文字运动模糊匹配纸面快晃。
+- 验证：`tools/measure_anchor.py` 修复前 `mean=4.26px, max=82.22px`，修复后 `mean=0.00px, max=0.00px`；`python -m py_compile app.py tools/measure_anchor.py` 通过；已生成 `outputs/anchor_before_old_smoothing.mp4`、`outputs/anchor_after_locked_to_paper.mp4` 和左右对比 `outputs/anchor_lock_before_after_compare.mp4`。
+
 ## 2026-06-19 12:58 正式楷体祝福帖观感
 
 - 主题：替换视频纸面字体，降低祝福帖文字的不正式和突兀感。
