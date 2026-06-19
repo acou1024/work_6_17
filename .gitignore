@@ -1,0 +1,32 @@
+# 环境变量（含敏感信息）
+.env
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 代码图谱生成物
+.codegraph/
+graphify-out/
+
+# 临时文件和审查帧
+tmp_review_frames/
+_tmp_review/
+
+# 输出目录（生成的审查结果）
+outputs/
+
+# 轨迹备份文件（以 .bak 结尾或包含 .bak_ 的备份）
+trajectory.json.bak*
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
