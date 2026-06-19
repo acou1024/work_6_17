@@ -369,9 +369,9 @@ def create_text_layer(
     identity_text = paper_display_text(f"{name} {birthdate}")
     wish_text = "身体康泰 万事顺遂"
 
-    title_font = fit_font(font_file, title_text, 82 * work_scale, 66 * work_scale, int(work_size[0] * 0.70))
-    identity_font = fit_font(font_file, identity_text, 48 * work_scale, 38 * work_scale, int(work_size[0] * 0.78))
-    wish_font = fit_font(font_file, wish_text, 48 * work_scale, 38 * work_scale, int(work_size[0] * 0.76))
+    title_font = fit_font(font_file, title_text, 118 * work_scale, 92 * work_scale, int(work_size[0] * 0.90))
+    identity_font = fit_font(font_file, identity_text, 70 * work_scale, 52 * work_scale, int(work_size[0] * 0.92))
+    wish_font = fit_font(font_file, wish_text, 70 * work_scale, 52 * work_scale, int(work_size[0] * 0.90))
 
     content_left = int(work_size[0] * 0.18)
     content_right = int(work_size[0] * 0.82)

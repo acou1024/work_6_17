@@ -1,5 +1,12 @@
 # ChangeLog
 
+## 2026-06-19 16:09 纸面文字放大
+
+- 主题：进一步放大纸面文字，使内容宽度接近红纸宽度的 85%。
+- 关键文件：`app.py`。
+- 改动：提高 `create_text_layer` 中标题、身份行和祝福行的 `fit_font` 字号上限，并扩大最大适配宽度，保持原生文字渲染避免拉伸变糊。
+- 验证：`python -m py_compile app.py` 通过；`python tools/render_preview.py` 已重新生成 `outputs/preview_after.mp4`，并抽取 `outputs/preview_after_enlarged_review/frame_001s.jpg`、`frame_004s.jpg`、`frame_008s.jpg` 目检确认文字明显变大、接近纸宽 85% 且晃动段未见明显漂移。
+
 ## 2026-06-19 15:22 马善政毛笔手写字体
 
 - 主题：将纸面文字切换为随仓库携带的 MaShanZheng 毛笔手写字体，并恢复版式占纸比例。
